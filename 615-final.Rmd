@@ -1,0 +1,238 @@
+---
+title: "portfolio analysis and visualization"
+date: "December 14, 2020"
+author: "Zhitian Liu"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+# Introduction
+
+## Background
+The COVID-19 pandemic has had a devastating effect on the economy in the United States. In early March 2020, the first lock downs began and the stock market plunged. After this initial reaction, however, the market recovered. 
+In this project, we will track the closing price of 5 stocks that were recommended by [5 Motley Fool contributors](https://www.fool.com/investing/2020/07/20/5-top-stocks-for-july.aspx) from July 1st to December 1st. Then, compare the performance of different portfolio combinations by these 5 stocks, choose the best portfolio to invest in after Dec 1st.
+
+## Tickers selection
+The [Motely Fool website](https://www.fool.com/investing/2020/07/20/5-top-stocks-for-july.aspx) suggest 5 best picks for investors during this unusual July. They are `NV5 Global(NVEE)`, `Slack Technologies(WORK)`,`NextEra Energy(NEE)`, `Berkshire Hathaway(BRK-B)`, and `Apple(AAPL)`. We will focus on these 5 tickers to biuld our portfolio.
+
+## Data preparations and assumptions
+Stock price and dividend data was collected by using `tq_get` function from `tidyquant` package, origins from [yahoo finance](https://finance.yahoo.com/) website.
+We assume we had an initial position of $250,000 in cash. Starting on 1 July 2020, we use all the money to long our position into the stock market and don't change the position until 2020-12-01. Note that we ignore trading costs, taxes, and any other fees, minimum investment requirements in this project.
+
+As we can see in the below table, we obtain the stock price table of 5 stocks we mentioned, we will focus on closing price of these stocks particularly.
+
+```{r setup, include=FALSE}
+library(knitr)
+opts_chunk$set(echo = FALSE)
+library(tidyverse)
+library(lubridate)
+library(bizdays)
+library(tidyquant)
+library(tidyquant)
+library(data.table)
+Sys.setlocale("LC_TIME", "English")
+```
+
+```{r}
+# download the data
+#bbb <- tq_get(x="AAPL", get = "dividends", from =  '2020-07-01', to = '2020-12-02' )
+#aaa <- tq_get(x="NVEE", get = "dividends", from =  '2020-07-01', to = '2020-12-01' )
+#ccc <- tq_get(x="NEE", get = "dividends", from =  '2020-07-01', to = '2020-12-01' )
+#ddd <- tq_get(x="WORK", get = "dividends", from =  '2020-07-01', to = '2020-12-01' )
+#eee <- tq_get(x="BRK-B", get = "dividends", from =  '2020-07-01', to = '2020-12-01' )
+#dividend=rbind(aaa,bbb,ccc,ddd,eee)
+#write.csv(dividend,"C:/Users/Lenovo/Downloads/dividend.csv")
+NVEE=read.csv("C:/Users/Lenovo/Downloads/NVEE (1).csv")
+AAPL=read.csv("C:/Users/Lenovo/Downloads/AAPL (1).csv")
+NEE=read.csv("C:/Users/Lenovo/Downloads/NEE (1).csv")
+BRK=read.csv("C:/Users/Lenovo/Downloads/BRK-B (1).csv")
+WORK=read.csv("C:/Users/Lenovo/Downloads/WORK (2).csv")
+NVEE$symbol="NVEE"
+AAPL$symbol="AAPL"
+NEE$symbol="NEE"
+BRK$symbol="BRK"
+WORK$symbol="WORK"
+groupdata=rbind(NVEE,AAPL,NEE,BRK,WORK)
+#write.csv(groupdata,"C:/Users/Lenovo/Downloads/groupdata.csv")
+
+groupdata=as_tibble(groupdata) 
+groupdata$Date=as.Date(groupdata$Date)
+head(groupdata)
+
+```
+
+# Single stock performance analysis
+## closing price for each stock
+In the first step of the analysis, we can visualize the closing price for each stock between 2020-07-01 and 2020-12-01. As we can see in the following chart, compare to the closing price at the beginning, all 5 tickers reached a higher price at the end of November. Around September, all 5 stocks' price experienced a decline more or less, this may be caused by the second wave of the epidemic. 
+```{r}
+groupdata %>%
+    ggplot(aes(x = Date, y = Close,color=symbol)) +
+    geom_line(size=1) +
+    labs(title = "single stocks Line Chart", y = "Closing Price", x = "") + 
+    theme_tq()+facet_wrap(~ symbol, ncol = 2, scale = "free_y")
+```
+
+# Monthly return rate comparison
+Because these 5 stocks have different price levels, it's hard to compare their trend directly, we can calculate the period return rate instead to compare each stock. As we can see from the below chart, these 5 stock's return rate has a similar trend: rebounded after reaching its lowest point around October. Before, September, `AAPL` has a better performance than other tickers, but it also fell most sharply after September. `WORK` Showed the most violent rebound from October, the rate of return rose from close to -20% to 60%.
+```{r}
+#calculate the return rate for each stock each month
+returndata<- groupdata %>%
+group_by(symbol) %>%
+tq_transmute(select = Adj.Close,
+mutate_fun = periodReturn,
+period = "monthly",
+col_rename = "monthlyreturn")
+#write.csv(returndata,"C:/Users/Lenovo/Downloads/returndata.csv")
+#visualize the return rate
+returndata%>%
+    ggplot(aes(x = Date, y = monthlyreturn,color=symbol,fill=symbol)) +
+    geom_line(size = 2) +
+    labs(title = "return rate Line Chart", y = "monthlyreturn", x = "") + 
+    theme_tq()+scale_color_tq()
+```
+
+# Portfolio analysis
+## visualize the portfolio value
+Now we can select several portfolios that we are interested in and see their yield curves.
+We randomly generate 3 portfolios, the weight of each stock in the portfolio are showed in the below table.
+
+```{r}
+
+portfolio_weight=matrix(c(0.2,0.2,0.2,0.2,0.2,
+          0.3,0.05,0.1,0.05,0.5,
+          0.1,0.4,0.05,0.4,0.05),ncol=5,byrow=TRUE)
+colnames(portfolio_weight) <- c("NVEE","AAPL","NEE","BRK","WORK")
+rownames(portfolio_weight) <- c("portfolio1","portfolio2","portfolio3")
+portfolio_weight
+```
+After calculating the weekly return rate for each stock, we can then track the portfolio value by using the `tq_portfolio` function in `tidyquant package`. From the portfolio growth graph, we can observe that portfolio 3 was ahead of the other two most of the time, but was overtaken by Portfolio 2 in the end. If we invest 25000 dollars into portfolio 2 at the beginning of July, we can get around 10,000 dollars revenue at the end of November, which is a great profit. But as we can see, portfolio 2's revenue line (`red`) is not very steady, it has a higher risk than the other 2 portfolios.
+```{r,warning=FALSE}
+#obtain the weekly return rate table
+returndata_weekly<- groupdata %>%
+group_by(symbol) %>%
+tq_transmute(select = Adj.Close,
+mutate_fun = periodReturn,
+period = "weekly",
+col_rename = "weekly_return")
+
+#write.csv(returndata_weekly,"C:/Users/Lenovo/Downloads/returndata_weekly.csv")
+
+#set the weight for each portfolio.
+#(NVEE,AAPL,NEE,BRK,WORK)
+weight=c(0.2,0.2,0.2,0.2,0.2,
+          0.3,0.05,0.1,0.05,0.5,
+          0.1,0.4,0.05,0.4,0.05)
+symbol=c("NVEE","AAPL","NEE","BRK","WORK")
+
+weight_table <- tibble(symbol) %>%
+tq_repeat_df(n = 3) %>%
+bind_cols(tibble(weight)) %>%
+group_by(portfolio)
+
+returndata_weekly_multi <- returndata_weekly %>%
+    tq_repeat_df(n = 3)
+
+
+portfoliogrowth<- returndata_weekly_multi %>%
+    tq_portfolio(assets_col   = symbol, 
+                 returns_col  = weekly_return, 
+                 weights      = weight_table, 
+                 col_rename   = "growth",
+                 wealth.index = TRUE) %>%
+    mutate(growth = growth * 250000)
+
+
+
+portfolio_plot=portfoliogrowth %>%
+    ggplot(aes(x = Date, y = growth, color = factor(portfolio))) +
+    geom_line(size = 2) +
+    labs(title = "Portfolio Growth",
+         subtitle = "Comparing Multiple Portfolios",
+         x = "", y = "Portfolio Value",
+         color = "Portfolio") +
+    geom_smooth(method = "loess") +
+    theme_tq() +
+    scale_color_tq() +
+    scale_y_continuous(labels = scales::dollar)
+    portfolio_plot
+
+```
+
+## Compare portfolio using CAPM model
+
+Through the ` Capital Asset Pricing Model (CAPM)`, we can analyze these from a more scientific perspective. Through `tq_get` function, we can get `XLK` portfolio data as baseline . Then use `tq_performance` function from `tidyquant` package, we can obtain a CAPM table.
+
+We focus on the `Alpha` factor in the table, `Alpha` is used to determine by how much the realized return of the portfolio varies from the required return, so basically, we want a higher Alpha. From the table, we can see that `portfolio 2` has the highest Alpha score. Which is NVEE(30%), AAPL(5%), NEE(10%), BRK(5%), WORK(50%).
+
+There must be a better portfolio with other combinations, we can explore it using the [shiny app](https://bu-rstudio-connect.bu.edu/connect/#/apps/39/info) I designed.
+
+
+```{r}
+
+#baseline_returns_weekly <- "XLK" %>%
+ #   tq_get(get  = "stock.prices",
+  #         from = "2020-07-01",
+   #        to   = "2020-12-2") %>%
+    #tq_transmute(select     = adjusted, 
+     #            mutate_fun = periodReturn, 
+      #           period     = "weekly", 
+       #          col_rename = "Rb")
+
+#write.csv(baseline_returns_weekly,"C:/Users/Lenovo/Downloads/baseline_returns_weekly.csv")
+baseline_returns_weekly=read.csv("C:/Users/Lenovo/Desktop/615final/baseline_returns_weekly.csv")
+baseline_returns_weekly=as_tibble(baseline_returns_weekly) 
+baseline_returns_weekly$Date=as.Date(baseline_returns_weekly$date)
+
+portfolio_returns_weekly_multi <- returndata_weekly_multi %>%
+    tq_portfolio(assets_col  = symbol, 
+                 returns_col = weekly_return, 
+                 weights     = weight_table, 
+                 col_rename  = "Ra")
+
+
+compare_data <- left_join(portfolio_returns_weekly_multi, 
+                                     baseline_returns_weekly,
+                                     by = "Date")
+compare_data %>%
+    tq_performance(Ra = Ra, Rb = Rb, performance_fun = table.CAPM)
+
+```
+
+# Limitation
+There are limitations to this analysis, Firstly, in the real world, we can long or short our position any time we want. We won't just keep a single position for months.
+Secondly, We didn't take account of some additional revenue or expenses such as dividends and interest. For interest, if we save all the money into the bank account at the beginning of July, assume the interest rate is 0.08%, we can obtain around `825 dollars` as a return, which is lower than most of the portfolios we tried. For dividends, `AAP`L and `NEE` paid dividends twice respectively between July and December, So these 2 tickers may have a better performance than we expected.
+
+```{r}
+#interest rate in the U.S is 0.79% on Oct-10-1, monthly return would be
+(1.0079)^(1/12)-1
+#0.066%
+#all saved to the bank, we get
+
+a=250000*(1.00066)^5
+a=round(a,2)
+paste("all saved to the bank, we get",a,'dollars') 
+dividend=read.csv("C:/Users/Lenovo/Desktop/615final/dividend.csv")
+dividend
+```
+the data frame indicates the dividend  value paid by `Apple` and `NextEra Energy`.
+
+# Conclusion
+In general, it can be seen from the price trends of these stocks that the situation in the US stock market has generally improved since the trough of the epidemic. Even during this period, there have been some volatile changes in stock prices.
+Also, these stocks that were recommended to buy in July had relatively ideal trends before December. To improve our analysis, the next step would be take the expenses and additional revenue into account.
+
+# Bibliography
+The suggestion of investment was made by *[5 Motley Fool contributors](https://www.fool.com/investing/2020/07/20/5-top-stocks-for-july.aspx)*.
+
+The function we used to analysis the investment is from package `tidyquant`
+we also use package `lubridate` to convert the date variable.
+
+The data source is download from *[yahoo finance](https://finance.yahoo.com/) *website.
+
+To explore more about these stocks, please use the *[shinyapp](https://bu-rstudio-connect.bu.edu/connect/#/apps/39/info) *I designed.
+
+
+
+
+
+
